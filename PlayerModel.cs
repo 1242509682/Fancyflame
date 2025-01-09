@@ -7,12 +7,11 @@ namespace Fancyflame;
 
 public class PlayerModel
 {
-    private bool reverse; // 用于在火焰斩释放时切换方向
-    public int Index { get; } // 玩家在游戏内的索引
-    public int UUID { get; } // 唯一用户标识符（UUID）的哈希值，用于唯一识别玩家
+    // 玩家在游戏内的索引
+    public int Index { get; } 
+    // 这样好判断新旧玩家
+    public int UUID { get; }
     public Player TPlayer => Main.player[Index]; // 获取与当前PlayerModel关联的Terraria.Player实例
-    public bool IsUseItem { get; set; } // 表示玩家是否正在使用物品
-    public int FlamesCooldown { get; set; } // 火焰技能的冷却时间
 
     #region 物品使用角度
     public double ItemUseAngle
@@ -39,115 +38,117 @@ public class PlayerModel
     #endregion
 
     #region 更新方法，主要用于减少技能冷却时间和检查是否应释放火焰斩技能。
+    public bool IsUseItem { get; set; } // 表示玩家是否正在使用物品
+    public int FlamesCooldown { get; set; } // 火焰技能的冷却时间
     public void Update()
     {
         // 如果火焰斩技能处于冷却中，则减少冷却时间
         if (FlamesCooldown > 0)
         {
-            FlamesCooldown -= 5;
+            FlamesCooldown -= Config.FrameIntervals;
         }
 
         // 检查是否满足释放火焰斩技能的条件：持有物品为3507（铜短剑） 不在冷却中 正在使用物品
-        if (TPlayer.HeldItem.type == Config.ItemID && FlamesCooldown <= 0 && IsUseItem)
+        if (Config.ItemID.Contains(TPlayer.HeldItem.type) && FlamesCooldown <= 0 && IsUseItem)
         {
             FlamesCooldown = Config.FlamesCooldown; // 设置火焰斩技能的冷却时间为120帧
             ReleaseFlameSlash(); // 释放火焰斩技能
         }
     }
-    #endregion
 
-    #region 当玩家正在使用物品时更新 IsUseItem 标识
+    //当玩家正在使用物品时更新 IsUseItem 标识
     public void OnReceiveUpdate(GetDataHandlers.PlayerUpdateEventArgs args)
     {
         IsUseItem = args.Control.IsUsingItem;
-    } 
+    }
     #endregion
 
     #region 释放火焰斩技能的方法
+    private bool reverse; // 用于在火焰斩释放时切换方向
     public void ReleaseFlameSlash()
     {
         // 切换火焰斩的方向
-        reverse = !reverse;
-        var num = reverse ? 1 : -1;
+        reverse ^= true;
+        var sign = reverse ? 1 : -1;
         // 尝试找到最近的目标距离，默认800f
-        var num2 = Math.Min(800f, TryFindNearestTargetDistance().GetValueOrDefault(800f));
+        var radius = Math.Min(16 * 50, TryFindNearestTargetDistance() ?? 16 * 50);
         // 计算武器伤害并乘以系数
         var damage = TPlayer.GetWeaponDamage(TPlayer.HeldItem) * 5 / 2;
 
         // 根据目标距离决定使用远程攻击模式还是近距离攻击模式
-        if (num2 > 160f)
+        if (radius > 16 * 10)
         {
             // 远程攻击模式：发射一系列定向的火焰线
             // 计算要发射的火焰线条数，至少5条，最多33条
-            var num3 = Math.Max(5, Math.Min(33, (int)Math.Ceiling(num2 / 800f * 33f)));
+            var steps = Math.Max(5, Math.Min(33, (int)Math.Ceiling(radius / 16 * 50 * 33f)));
 
             // 定义火焰线的角度范围
-            var num4 = ItemUseAngle + Math.PI / 3.0 * num; // 最大角度偏移
-            var num5 = ItemUseAngle - Math.PI / 3.0 * num; // 最小角度偏移
+            var angleStart = ItemUseAngle + Math.PI / 3.0 * sign; // 最大角度偏移
+            var angleEnd = ItemUseAngle - Math.PI / 3.0 * sign; // 最小角度偏移
 
             // 循环创建并发射每一条火焰线
-            for (var i = 0; i < num3; i++)
+            for (var step = 0; step < steps; step++)
             {
                 // 计算当前火焰线的角度和长度
-                var angle = num4 + (num5 - num4) * i / num3;
-                var num6 = 16f + 224f * i / num3;
-                var n = (int)(num6 / 16f);
-                var counterdown = 60 * i / num3 + 2;
+                var angle = angleStart + (angleEnd - angleStart) * step / steps;
+                var width = 16f + 224f * step / steps;
+                var n = (int)(width / 16f);
+                var timeToDelay = 60 * step / steps + 2;
                 // 确定火焰线的起点和终点位置
-                var val = TPlayer.Center + FromPolar(angle, num2);
+                var lineCenter = TPlayer.Center + FromPolar(angle, radius);
                 // 创建并配置QueuedProjLineShot对象
-                var qpls = new QueuedProjLineShot(this);
-                qpls.Damage = damage;
-                qpls.Knockback = 5f;
-                qpls.Start = val + FromPolar(angle, (0f - num6) / 2f);
-                qpls.End = val + FromPolar(angle, num6 / 2f);
-                qpls.Counterdown = counterdown;
-                qpls.N = n;
-                var shot = qpls;
-                // 添加到插件实例中处理
+                var shot = new QueuedProjLineShot(this)
+                {
+                    Damage = damage,
+                    Knockback = 5,
+                    Start = lineCenter + FromPolar(angle, -width / 2),
+                    End = lineCenter + FromPolar(angle, width / 2),
+                    Counterdown = timeToDelay,
+                    N = n,
+                };
                 FancyflamePlugin.Instance!.AddLineShot(shot);
             }
             return;
         }
-
-        // 如果敌人在160f以内，则触发近距离攻击模式，增加冷却时间
-        FlamesCooldown *= 2;
-        // 初始化延迟计数器和增量
-        var num7 = 2;
-        var num8 = 5;
-        num2 = 120f;
-
-        // 创建环绕玩家的多层火焰圈
-        for (var j = 0; j < 3; j++) // 外层循环控制层数
+        else
         {
-            var num9 = 0.0;
-            var num10 = Math.PI / 4.0;
-
-            for (var k = 0; k < 8; k++) // 中层循环控制每层的扇区数
+            // 如果敌人在160f以内，则触发近距离攻击模式，增加冷却时间(直接在身边扫2圈，时间翻倍
+            FlamesCooldown *= 2;
+            // 初始化延迟计数器和增量
+            var delay = 2;
+            var deltaTime = 120 / 24;
+            radius = 16 * 7.5f;
+            // 创建环绕玩家的多层火焰圈
+            for (var i = 0; i < 3; i++) // 外层循环控制层数
             {
-                for (var l = 0; l < 3; l++) // 内层循环控制每个扇区内的射线数
+                var angle = 0.0;
+                var delta = Math.PI / 4.0;
+                for (var j = 0; j < 8; j++) // 中层循环控制每层的扇区数
                 {
-                    // 计算射线的起始和结束位置
-                    var start = TPlayer.Center + FromPolar(num9, 80f);
-                    var end = TPlayer.Center + FromPolar(num9, 160f);
-                    // 创建并配置QueuedProjLineShot对象
-                    var qpls = new QueuedProjLineShot(this);
-                    qpls.Damage = damage;
-                    qpls.Knockback = 5f;
-                    qpls.Start = start;
-                    qpls.End = end;
-                    qpls.Counterdown = num7;
-                    qpls.N = 5;
-                    var shot2 = qpls;
+                    for (var k = 0; k < 3; k++) // 内层循环控制每个扇区内的射线数
+                    {
+                        // 计算射线的起始和结束位置
+                        var lineStart = TPlayer.Center + FromPolar(angle, 80f);
+                        var lineEnd = TPlayer.Center + FromPolar(angle, 160f);
+                        // 创建并配置QueuedProjLineShot对象
+                        var shot = new QueuedProjLineShot(this)
+                        {
+                            Damage = damage,
+                            Knockback = 5,
+                            Start = lineStart,
+                            End = lineEnd,
+                            Counterdown = delay,
+                            N = 5,
+                        };
 
-                    // 更新角度准备下一次射线
-                    num9 += num10 / 3.0;
-
-                    // 添加到插件实例中处理
-                    FancyflamePlugin.Instance!.AddLineShot(shot2);
+                        // 更新角度准备下一次射线
+                        angle += delta / 3.0;
+                        // 添加到插件实例中处理
+                        FancyflamePlugin.Instance!.AddLineShot(shot);
+                    }
+                    // 增加延迟计数器以确保层次之间有时间间隔
+                    delay += deltaTime;
                 }
-                // 增加延迟计数器以确保层次之间有时间间隔
-                num7 += num8;
             }
         }
     } 
@@ -156,12 +157,12 @@ public class PlayerModel
     #region 尝试查找最近的目标距离
     public float? TryFindNearestTargetDistance()
     {
-        var npcs = (from npc in Main.npc
-                    where npc.active && !npc.friendly
-                    where npc.Distance(TPlayer.Center) < 1280f
-                    orderby npc.Distance(TPlayer.Center)
-                    select npc).FirstOrDefault()!;
-        return (npcs != null) ? new float?(npcs.Distance(TPlayer.Center)) : null;
+        var target = Main.npc
+            .Where(npc => npc.active && !npc.friendly)
+            .Where(npc => npc.Distance(TPlayer.Center) < 16 * 80)
+            .OrderBy(npc => npc.Distance(TPlayer.Center))
+            .FirstOrDefault();
+        return target?.Distance(TPlayer.Center);
     }
     #endregion
 
@@ -170,22 +171,22 @@ public class PlayerModel
     {
         var tPlayer = TPlayer;
         var Source = tPlayer.GetProjectileSource_Item(tPlayer.HeldItem);
-        var num = Projectile.NewProjectile(Source, position, velocity, Type, Damage, KnockBack, owner, ai0, ai1, 0f);
+        var index = Projectile.NewProjectile(Source, position, velocity, Type, Damage, KnockBack, owner, ai0, ai1, 0f);
 
         //羽学注：NewProjectile方法已经能创建弹幕了，不需要发包
-        //Main.projectile[num].extraUpdates = extraUpdates;
-        //TSPlayer.All.SendData(PacketTypes.ProjectileNew, "", num);
-        return num;
+        Main.projectile[index].extraUpdates = extraUpdates;
+        TSPlayer.All.SendData(PacketTypes.ProjectileNew, "", index);
+        return index;
     }
     #endregion
 
     #region 沿着一条线发射多个弹幕
     public void ProjLine(Vector2 start, Vector2 end, Vector2 velocity, int n, int projType, int damage, float knockback)
     {
-        var val = (end - start) / n;
+        var delta = (end - start) / n;
         for (var i = 0; i < n; i++)
         {
-            NewProj(start + val * i, velocity, projType, damage, knockback);
+            NewProj(start + delta * i, velocity, projType, damage, knockback);
         }
     }
     #endregion

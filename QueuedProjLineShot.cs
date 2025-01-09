@@ -14,7 +14,6 @@ public struct QueuedProjLineShot
     public int Damage { get; set; }
     public float Knockback { get; set; }
     public int Counterdown { get; set; }
-
     public QueuedProjLineShot(PlayerModel owner)
     {
         Owner = owner;
@@ -35,7 +34,7 @@ public struct QueuedProjLineShot
         }
         if (Counterdown > 0)
         {
-            Counterdown -= 5;
+            Counterdown -= Config.FrameIntervals;
             return false;
         }
         if (Counterdown <= 0)

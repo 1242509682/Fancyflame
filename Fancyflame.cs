@@ -15,14 +15,8 @@ public class FancyflamePlugin : TerrariaPlugin
     public override Version Version => new Version(1, 0);
     #endregion
 
-    #region 全局变量
-    private PlayerModel?[] players; // 存储所有玩家的PlayerModel实例
-    private LinkedList<QueuedProjLineShot> queue; // 用于处理线性射击任务的队列
-    private List<QueuedProjLineShot> queueBuffer; // 缓存新的线性射击任务
-    public static FancyflamePlugin? Instance { get; private set; } // 单例模式实例 
-    #endregion
-
     #region 注册与释放
+    public static FancyflamePlugin? Instance { get; private set; } // 单例模式实例 
     public FancyflamePlugin(Main game) : base(game)
     {
         players = new PlayerModel[255];
@@ -70,39 +64,38 @@ public class FancyflamePlugin : TerrariaPlugin
     #endregion
 
     #region 世界更新事件
+    private PlayerModel?[] players; // 存储所有玩家的PlayerModel实例
+    private LinkedList<QueuedProjLineShot> queue; // 用于处理线性射击任务的队列
+    private List<QueuedProjLineShot> queueBuffer; // 缓存新的线性射击任务
     public void OnGameUpdate(object args)
     {
         // 遍历玩家数组，每隔5个元素调用一次Update方法来更新玩家状态。
         // 注意：这种遍历方式可能意味着并非所有玩家都会在每次世界更新时被更新，这取决于players数组的实际内容和长度。
-        for (var i = 0; i < players.Length; i += 5)
+        for (var i = 0; i < players.Length; i += Config.FrameIntervals)
         {
             // 使用null条件运算符安全地调用Update方法，避免因空引用引发异常。
             players[i]?.Update();
         }
 
         // 获取队列中的元素数量，并存储在一个局部变量中以确保循环过程中count值不变。
-        var count = queue.Count;
-
-        // 如果队列中有待处理的元素，则进入此块逻辑进行处理。
-        if (count > 0)
+        var n = queue.Count;
+        if (n > 0) // 如果队列中有待处理的元素，则进入此块逻辑进行处理。
         {
             // 获取队列的第一个节点。
-            var linkedListNode = queue.First;
-
+            var node = queue.First;
             // 根据预先获取的count值迭代队列中的每个元素。
-            for (int j = 0; j < count; j++)
+            for (var i = 0; i < n; i++)
             {
                 // 提前保存下一个节点，因为当前节点可能会从队列中移除。
-                var next = linkedListNode!.Next;
-
+                var nodeNext = node!.Next;
                 // 调用队列元素的Update方法，如果返回true则表示该元素已完成其工作并应从队列中移除。
-                if (linkedListNode.ValueRef.Update())
+                if (node.ValueRef.Update())
                 {
-                    queue.Remove(linkedListNode);
+                    queue.Remove(node);
                 }
 
                 // 移动到下一个节点。
-                linkedListNode = next;
+                node = nodeNext;
             }
         }
 
