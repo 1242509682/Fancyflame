@@ -28,20 +28,30 @@ public struct QueuedProjLineShot
 
     public bool Update()
     {
-        if (Owner.UUID != TShock.Players[Owner.Index].UUID.GetHashCode())
+        if (Config.ItemList == null || Config.ItemList.Count <= 0) return false;
+
+        var ownerUUID = Owner.UUID;
+        var ownerIndex = Owner.Index;
+        var heldItemType = Owner.TPlayer.HeldItem.type;
+
+        if (ownerUUID != TShock.Players[ownerIndex].UUID.GetHashCode())
         {
             return true;
         }
+
+        var items = Config.ItemList.FirstOrDefault(x => x != null && x.ItemID == heldItemType);
+        if (items == null) return false;
         if (Counterdown > 0)
         {
-            Counterdown -= Config.FrameIntervals;
+            Counterdown -= items.FrameIntervals;
             return false;
         }
         if (Counterdown <= 0)
         {
-            Owner.ProjLine(Start, End, Velocity, N, Config.FlamesProj, Damage, Knockback);
+            Owner.ProjLine(Start, End, Velocity, N, items.FlamesProj, Damage, Knockback);
             return true;
         }
+
         return false;
     }
 }

@@ -8,7 +8,7 @@ namespace Fancyflame;
 public class PlayerModel
 {
     // 玩家在游戏内的索引
-    public int Index { get; } 
+    public int Index { get; }
     // 这样好判断新旧玩家
     public int UUID { get; }
     public Player TPlayer => Main.player[Index]; // 获取与当前PlayerModel关联的Terraria.Player实例
@@ -42,17 +42,24 @@ public class PlayerModel
     public int FlamesCooldown { get; set; } // 火焰技能的冷却时间
     public void Update()
     {
-        // 如果火焰斩技能处于冷却中，则减少冷却时间
-        if (FlamesCooldown > 0)
-        {
-            FlamesCooldown -= Config.FrameIntervals;
-        }
+        if (Config.ItemList == null || Config.ItemList.Count <= 0) return;
 
-        // 检查是否满足释放火焰斩技能的条件：持有物品为3507（铜短剑） 不在冷却中 正在使用物品
-        if (Config.ItemID.Contains(TPlayer.HeldItem.type) && FlamesCooldown <= 0 && IsUseItem)
+        foreach (var item in Config.ItemList)
         {
-            FlamesCooldown = Config.FlamesCooldown; // 设置火焰斩技能的冷却时间为120帧
-            ReleaseFlameSlash(); // 释放火焰斩技能
+            if (item == null || item.ItemID == 0) continue;
+
+            // 如果火焰斩技能处于冷却中，则减少冷却时间
+            if (FlamesCooldown > 0)
+            {
+                FlamesCooldown -= item.FrameIntervals;
+            }
+
+            // 检查是否满足释放火焰斩技能的条件：持有物品为3507（铜短剑） 不在冷却中 正在使用物品
+            if (item.ItemID == TPlayer.HeldItem.type && FlamesCooldown <= 0 && IsUseItem)
+            {
+                FlamesCooldown = item.FlamesCooldown; // 设置火焰斩技能的冷却时间为120帧
+                ReleaseFlameSlash(item); // 释放火焰斩技能
+            }
         }
     }
 
@@ -65,26 +72,26 @@ public class PlayerModel
 
     #region 释放火焰斩技能的方法
     private bool reverse; // 用于在火焰斩释放时切换方向
-    public void ReleaseFlameSlash()
+    internal void ReleaseFlameSlash(Configuration.ItemData item)
     {
         // 切换火焰斩的方向
         reverse ^= true;
         var sign = reverse ? 1 : -1;
-        // 尝试找到最近的目标距离，默认800f
-        var radius = Math.Min(16 * 50, TryFindNearestTargetDistance() ?? 16 * 50);
+        // 尝试找到最近的目标距离，默认50格
+        var radius = Math.Min(item.RemoteRadius * 16, TryFindNearestTargetDistance(item) ?? item.RemoteRadius * 16);
         // 计算武器伤害并乘以系数
         var damage = TPlayer.GetWeaponDamage(TPlayer.HeldItem) * 5 / 2;
 
         // 根据目标距离决定使用远程攻击模式还是近距离攻击模式
-        if (radius > 16 * 10)
+        if (radius > item.RemoteRange * 16)
         {
             // 远程攻击模式：发射一系列定向的火焰线
             // 计算要发射的火焰线条数，至少5条，最多33条
-            var steps = Math.Max(5, Math.Min(33, (int)Math.Ceiling(radius / 16 * 50 * 33f)));
+            var steps = Math.Max(item.RemoteMin, Math.Min(item.RemoteMax, (int)Math.Ceiling(radius / 16 * item.RemoteRadius * item.RemoteMax)));
 
             // 定义火焰线的角度范围
-            var angleStart = ItemUseAngle + Math.PI / 3.0 * sign; // 最大角度偏移
-            var angleEnd = ItemUseAngle - Math.PI / 3.0 * sign; // 最小角度偏移
+            var angleStart = ItemUseAngle + Math.PI / item.RemoteAngleStart * sign; // 最大角度偏移
+            var angleEnd = ItemUseAngle - Math.PI / item.RemoteAngleStop * sign; // 最小角度偏移
 
             // 循环创建并发射每一条火焰线
             for (var step = 0; step < steps; step++)
@@ -112,12 +119,12 @@ public class PlayerModel
         }
         else
         {
-            // 如果敌人在160f以内，则触发近距离攻击模式，增加冷却时间(直接在身边扫2圈，时间翻倍
-            FlamesCooldown *= 2;
+            FlamesCooldown *= 2; // 如果敌人在10格以内，则触发近距离攻击模式，增加冷却时间(直接在身边扫2圈，时间翻倍
+
             // 初始化延迟计数器和增量
             var delay = 2;
             var deltaTime = 120 / 24;
-            radius = 16 * 7.5f;
+            radius = 16 * item.CloseRadius;
             // 创建环绕玩家的多层火焰圈
             for (var i = 0; i < 3; i++) // 外层循环控制层数
             {
@@ -128,8 +135,8 @@ public class PlayerModel
                     for (var k = 0; k < 3; k++) // 内层循环控制每个扇区内的射线数
                     {
                         // 计算射线的起始和结束位置
-                        var lineStart = TPlayer.Center + FromPolar(angle, 80f);
-                        var lineEnd = TPlayer.Center + FromPolar(angle, 160f);
+                        var lineStart = TPlayer.Center + FromPolar(angle, 5 * 16);
+                        var lineEnd = TPlayer.Center + FromPolar(angle, 10 * 16);
                         // 创建并配置QueuedProjLineShot对象
                         var shot = new QueuedProjLineShot(this)
                         {
@@ -151,15 +158,15 @@ public class PlayerModel
                 }
             }
         }
-    } 
+    }
     #endregion
 
     #region 尝试查找最近的目标距离
-    public float? TryFindNearestTargetDistance()
+    internal float? TryFindNearestTargetDistance(Configuration.ItemData item)
     {
         var target = Main.npc
             .Where(npc => npc.active && !npc.friendly)
-            .Where(npc => npc.Distance(TPlayer.Center) < 16 * 80)
+            .Where(npc => npc.Distance(TPlayer.Center) < item.AutoFindRange * 16)
             .OrderBy(npc => npc.Distance(TPlayer.Center))
             .FirstOrDefault();
         return target?.Distance(TPlayer.Center);
@@ -205,7 +212,7 @@ public class PlayerModel
             (float)(Math.Cos(angle) * length), // X坐标
             (float)(Math.Sin(angle) * length)  // Y坐标
         );
-    } 
+    }
     #endregion
 
 }

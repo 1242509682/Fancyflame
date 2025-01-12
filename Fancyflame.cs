@@ -12,7 +12,7 @@ public class FancyflamePlugin : TerrariaPlugin
     public override string Name => "火焰斩";
     public override string Author => "TOFOUT";
     public override string Description => "让指定武器能释放自动寻敌的火焰斩";
-    public override Version Version => new Version(1, 0);
+    public override Version Version => new Version(1, 1);
     #endregion
 
     #region 注册与释放
@@ -71,12 +71,16 @@ public class FancyflamePlugin : TerrariaPlugin
     {
         // 遍历玩家数组，每隔5个元素调用一次Update方法来更新玩家状态。
         // 注意：这种遍历方式可能意味着并非所有玩家都会在每次世界更新时被更新，这取决于players数组的实际内容和长度。
-        for (var i = 0; i < players.Length; i += Config.FrameIntervals)
+        if (Config.ItemList == null || Config.ItemList.Count <= 0) return;
+        foreach (var item in Config.ItemList)
         {
-            // 使用null条件运算符安全地调用Update方法，避免因空引用引发异常。
-            players[i]?.Update();
-        }
+            if (item == null || item.ItemID == 0) continue;
 
+            for (var i = 0; i < players.Length; i += item.FrameIntervals)
+            {
+                players[i]?.Update(); // 使用null条件运算符安全地调用Update方法，避免因空引用引发异常。
+            }
+        }
         // 获取队列中的元素数量，并存储在一个局部变量中以确保循环过程中count值不变。
         var n = queue.Count;
         if (n > 0) // 如果队列中有待处理的元素，则进入此块逻辑进行处理。
